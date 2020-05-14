@@ -6,6 +6,8 @@ from sklearn.decomposition import PCA
 import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
 import numpy as np
+from tensorflow.keras import backend as K
+
 
 '''
 Ensemble Representation Learning Classifier (ERLC)
@@ -13,7 +15,7 @@ Ensemble Representation Learning Classifier (ERLC)
 
 class ERLC:
 
-    def __init__(self, verbose = True, sae_hidden_nodes = 400, outerNN_layers = 2, outerNN_nodes = 1024):
+    def __init__(self, verbose = True, sae_hidden_nodes = 400, outerNN_layers = 2, outerNN_nodes = 256, pca_components = 14):
         self.verbose = verbose
         self.sae_hidden_nodes = sae_hidden_nodes
         self.outerNN_layers = outerNN_layers
@@ -26,10 +28,11 @@ class ERLC:
         self.inner_dnn = Sequential()
         self.inner_dnn_new = Sequential()
         self.outer_dnn = Sequential()
+        self.pca = PCA(n_components = pca_components)
 
 
 
-    def fit(self, X_train, y_train,  num_classes = 42, sae_epochs = 100, innerNN_epochs = 100, outerNN_epochs = 500):
+    def fit(self, X_train, y_train,  num_classes = 42, sae_epochs = 500, innerNN_epochs = 500, outerNN_epochs = 500):
         if (self.verbose):
             print("Building ERLC model")
 
@@ -52,8 +55,7 @@ class ERLC:
         # Train DT on new representation
         if (self.verbose):
             print("Training DT on new representation")
-        pca = PCA(n_components = 14)
-        Xtr = pca.fit_transform(X_train_new)
+        Xtr = self.pca.fit_transform(X_train_new)
         self.DT_new.fit(Xtr,y_train)
         train_DT_new = self.DT_new.predict(Xtr)
 
@@ -82,6 +84,8 @@ class ERLC:
         train_DNN_new = self.inner_dnn_new.predict_classes(X_train_new)
 
         # Changing output of each classifier to categorical
+        if (self.verbose):
+            print("Creating fusion vector")
         train_DT_org = to_categorical(train_DT_org, num_classes = num_classes)
         train_DT_new = to_categorical(train_DT_new, num_classes = num_classes)
         train_RF_org = to_categorical(train_RF_org, num_classes = num_classes)
@@ -94,6 +98,8 @@ class ERLC:
         fused_train = np.concatenate(fused_train, axis=1)
 
         # Training outer DNN
+        if (self.verbose):
+            print("Training outer DNN")
         self.outer_dnn = self.buildOuterNN(fused_train, y_train,
                                             num_layers = self.outerNN_layers,
                                             num_nodes = self.outerNN_nodes,
@@ -102,8 +108,47 @@ class ERLC:
                                             regularizer = True,
                                             epochs = outerNN_epochs)
 
+        if (self.verbose):
+            print("Training complete")
 
+    def predict (self, X_test):
+        # Get new representation of test data
+        X_test_new = self.sae.predict(X_test)
 
+        # DT original
+        DT_org_test = self.DT_org.predict(X_test)
+
+        # DT new
+        tempX = self.pca.transform(X_test_new)
+        DT_new_test = self.DT_new.predict(tempX)
+
+        # RF original
+        RF_org_test = self.RF_org.predict(X_test)
+
+        # RF new
+        RF_new_test = self.RF_new.predict(X_test_new)
+
+        # DNN original
+        DNN_org_test = self.inner_dnn.predict_classes(X_test)
+
+        # DNN new
+        DNN_new_test = self.inner_dnn_new.predict_classes(X_test_new)
+
+        # Transform to categorical and combine
+        DT_org_test = to_categorical(DT_org_test, num_classes=42)
+        DT_new_test = to_categorical(DT_new_test, num_classes=42)
+        RF_org_test = to_categorical(RF_org_test, num_classes=42)
+        RF_new_test = to_categorical(RF_new_test, num_classes=42)
+        DNN_org_test = to_categorical(DNN_org_test, num_classes=42)
+        DNN_new_test = to_categorical(DNN_new_test, num_classes=42)
+
+        testSet = (DT_org_test, DT_new_test, RF_org_test, RF_new_test, DNN_org_test, DNN_new_test)
+        testSet = np.concatenate(testSet, axis = 1)
+
+        # Outer NN
+        y_pred = self.outer_dnn.predict_classes(testSet)
+
+        return y_pred
 
     def buildSAE(self, X_train, num_nodes = 400, epochs= 100):
         '''
@@ -120,7 +165,12 @@ class ERLC:
         decoded = Dense(units=X_train.shape[1], activation='relu')(decoded)
         autoencoder=Model(input_X, decoded)
         autoencoder.compile(optimizer='adam', loss='mean_squared_error', metrics=['mse'])
-        autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=256, shuffle=True, validation_split=0.2)
+
+        # Early Stop Callback
+        earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-6, mode = 'min',patience=10)
+
+        # Fit the autoencoder
+        autoencoder.fit(X_train, X_train, epochs=epochs, batch_size=256, shuffle=True, validation_split=0.2, callbacks = [earlystop_callback])
 
         # Preparing the autoencoder model for use
         model=Sequential()
@@ -150,15 +200,15 @@ class ERLC:
         nn_model.add(Dense(units=num_classes, activation='softmax'))
 
         # Early Stop Callback
-        earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=1e-7, mode = 'min',patience=5)
+        earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='val_f1_m', min_delta=1e-6, mode = 'max',patience=20)
 
-        nn_model.compile(optimizer='adam', loss= 'categorical_crossentropy')
-        nn_model.fit(X_train, y_train2, epochs = epochs, batch_size=32, validation_split=0.2, callbacks = [earlystop_callback])
+        nn_model.compile(optimizer='adam', loss= 'categorical_crossentropy', metrics=['acc',self.f1_m])
+        nn_model.fit(X_train, y_train2, epochs = epochs, batch_size=256, validation_split=0.2, callbacks = [earlystop_callback])
         return nn_model
 
 
 
-    def buildOuterNN(self, X_train, y_train, num_layers = 2, num_nodes = 1024, num_classes = 42, do = 0.3, regularizer = True, epochs = 500):
+    def buildOuterNN(self, X_train, y_train, num_layers = 2, num_nodes = 128, num_classes = 42, do = 0.3, regularizer = True, epochs = 500):
         '''
         This function builds the inner Deep Neural Network (DNN) and trains it to gain a new representation.
         INPUTS:
@@ -181,10 +231,29 @@ class ERLC:
                 outer_nn_model.add(Dense(num_nodes, activation='relu'))
 
         outer_nn_model.add(Dense(num_classes, activation='softmax'))
-        outer_nn_model.compile(optimizer='adam', loss= 'sparse_categorical_crossentropy')
+        outer_nn_model.compile(optimizer='adam', loss= 'sparse_categorical_crossentropy', metrics=['acc',self.f1_m])
 
         # Early Stop Callback
-        earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='val_loss', min_delta=1e-7, mode = 'min',patience=5)
+        earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-6, mode = 'min',patience=10)
 
-        outer_nn_model.fit(X_train, y_train, epochs = epochs, batch_size=32, validation_split=0.2, callbacks = [earlystop_callback])
+        outer_nn_model.fit(X_train, y_train, epochs = epochs, batch_size=256, validation_split=0.2, callbacks = [earlystop_callback])
         return outer_nn_model
+
+
+
+    def recall_m(self, y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        possible_positives = K.sum(K.round(K.clip(y_true, 0, 1)))
+        recall = true_positives / (possible_positives + K.epsilon())
+        return recall
+
+    def precision_m(self, y_true, y_pred):
+        true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
+        predicted_positives = K.sum(K.round(K.clip(y_pred, 0, 1)))
+        precision = true_positives / (predicted_positives + K.epsilon())
+        return precision
+
+    def f1_m(self, y_true, y_pred):
+        precision = self.precision_m(y_true, y_pred)
+        recall = self.recall_m(y_true, y_pred)
+        return 2*((precision*recall)/(precision+recall+K.epsilon()))
