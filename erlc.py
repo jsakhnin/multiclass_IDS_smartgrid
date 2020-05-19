@@ -1,3 +1,4 @@
+from sklearn.base import BaseEstimator
 from tensorflow.keras import Sequential, Model
 from tensorflow.keras.layers import Dense, Input, Dropout
 from sklearn.ensemble import RandomForestClassifier
@@ -13,13 +14,18 @@ from tensorflow.keras import backend as K
 Ensemble Representation Learning Classifier (ERLC)
 '''
 
-class ERLC:
+class ERLC (BaseEstimator):
 
-    def __init__(self, verbose = True, sae_hidden_nodes = 400, outerNN_layers = 2, outerNN_nodes = 256, pca_components = 14):
+    def __init__(self, verbose = True, sae_hidden_nodes = 400, innerNN_layers = 3, innerNN_nodes = 512, outerNN_layers = 2, outerNN_nodes = 256 ,pca_components = 14):
         self.verbose = verbose
+        ## Tunable Parameters
         self.sae_hidden_nodes = sae_hidden_nodes
+        self.innerNN_layers = innerNN_layers
+        self.innerNN_nodes = innerNN_nodes
         self.outerNN_layers = outerNN_layers
         self.outerNN_nodes = outerNN_nodes
+
+        ## Models
         self.DT_org = DecisionTreeClassifier()
         self.DT_new = DecisionTreeClassifier()
         self.RF_org = RandomForestClassifier()
@@ -31,6 +37,18 @@ class ERLC:
         self.pca = PCA(n_components = pca_components)
 
 
+    def get_params(self, deep=True):
+        return {"sae_hidden_nodes": self.sae_hidden_nodes,
+                "innerNN_layers": self.innerNN_layers,
+                "innerNN_nodes": self.innerNN_nodes,
+                "outerNN_layers": self.outerNN_layers,
+                "outerNN_nodes": self.outerNN_nodes,
+                }
+
+    def set_params(self, **parameters):
+        for parameter, value in parameters.items():
+            setattr(self, parameter, value)
+        return self
 
     def fit(self, X_train, y_train,  num_classes = 42, sae_epochs = 500, innerNN_epochs = 500, outerNN_epochs = 500):
         if (self.verbose):
@@ -74,13 +92,28 @@ class ERLC:
         # Build and train inner DNN
         if (self.verbose):
             print("Training inner DNN")
-        self.inner_dnn = self.buildInnerDNN(X_train, y_train, num_classes = num_classes, epochs = innerNN_epochs)
+        # self.inner_dnn = self.buildInnerDNN(X_train, y_train, num_classes = num_classes, epochs = innerNN_epochs)
+        self.inner_dnn = self.buildNN(X_train, y_train,
+                                            num_layers = self.innerNN_layers,
+                                            num_nodes = self.innerNN_nodes,
+                                            num_classes = num_classes,
+                                            activation = 'relu',
+                                            do = 0,
+                                            # regularizer = True,
+                                            epochs = innerNN_epochs)
         train_DNN = self.inner_dnn.predict_classes(X_train)
 
         # Build and train inner DNN on new representation
         if (self.verbose):
             print("Training inner DNN on new representation")
-        self.inner_dnn_new = self.buildInnerDNN(X_train_new, y_train, num_classes = num_classes, epochs = innerNN_epochs)
+        self.inner_dnn_new = self.buildNN(X_train_new, y_train,
+                                            num_layers = self.innerNN_layers,
+                                            num_nodes = self.innerNN_nodes,
+                                            num_classes = num_classes,
+                                            activation = 'relu',
+                                            do = 0,
+                                            # regularizer = True,
+                                            epochs = innerNN_epochs)
         train_DNN_new = self.inner_dnn_new.predict_classes(X_train_new)
 
         # Changing output of each classifier to categorical
@@ -100,12 +133,13 @@ class ERLC:
         # Training outer DNN
         if (self.verbose):
             print("Training outer DNN")
-        self.outer_dnn = self.buildOuterNN(fused_train, y_train,
+        self.outer_dnn = self.buildNN(fused_train, y_train,
                                             num_layers = self.outerNN_layers,
                                             num_nodes = self.outerNN_nodes,
                                             num_classes = num_classes,
-                                            do = 0.3,
-                                            regularizer = True,
+                                            do = 0.2,
+                                            val_split = 0.2,
+                                            # regularizer = True,
                                             epochs = outerNN_epochs)
 
         if (self.verbose):
@@ -183,7 +217,8 @@ class ERLC:
 
 
 
-    def buildInnerDNN(self, X_train, y_train, num_classes = 42, epochs = 100):
+
+    def buildNN(self, X_train, y_train, num_layers = 2, num_nodes = 128, activation = 'relu', num_classes = 42, do = 0, regularizer = False, epochs = 500, val_split = 0):
         '''
         This function builds the inner Deep Neural Network (DNN) and trains it to gain a new representation.
         INPUTS:
@@ -194,31 +229,6 @@ class ERLC:
         '''
         # Building the Neural Network
         y_train2 = to_categorical(y_train,num_classes= num_classes)
-        nn_model=Sequential()
-        nn_model.add(Dense(units=800, activation='relu'))
-        nn_model.add(Dense(units=400, activation='relu'))
-        nn_model.add(Dense(units=num_classes, activation='softmax'))
-
-        # Early Stop Callback
-        earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='val_f1_m', min_delta=1e-6, mode = 'max',patience=20)
-
-        nn_model.compile(optimizer='adam', loss= 'categorical_crossentropy', metrics=['acc',self.f1_m])
-        nn_model.fit(X_train, y_train2, epochs = epochs, batch_size=256, validation_split=0.2, callbacks = [earlystop_callback])
-        return nn_model
-
-
-
-    def buildOuterNN(self, X_train, y_train, num_layers = 2, num_nodes = 128, num_classes = 42, do = 0.3, regularizer = True, epochs = 500):
-        '''
-        This function builds the inner Deep Neural Network (DNN) and trains it to gain a new representation.
-        INPUTS:
-        - X_train: matrix of the data (meter measurements of a smart grid)
-        - y_train: array of the labels for the corresponding X_train samples
-        - the autoencoder model built with buildSAE function
-        - num_classes: the number of classes
-        '''
-        # Building the Neural Network
-        # y_train2 = to_categorical(y_train,num_classes= num_classes)
         outer_nn_model = Sequential()
 
         for i in range(num_layers):
@@ -226,20 +236,21 @@ class ERLC:
                 outer_nn_model.add(Dropout(do))
 
             if (regularizer == True):
-                outer_nn_model.add(Dense(num_nodes, activation='relu', kernel_regularizer= tf.keras.regularizers.l2(0.001)))
+                outer_nn_model.add(Dense(num_nodes, activation=activation, kernel_regularizer= tf.keras.regularizers.l2(0.0001)))
             else:
-                outer_nn_model.add(Dense(num_nodes, activation='relu'))
+                outer_nn_model.add(Dense(num_nodes, activation=activation))
 
         outer_nn_model.add(Dense(num_classes, activation='softmax'))
-        outer_nn_model.compile(optimizer='adam', loss= 'sparse_categorical_crossentropy', metrics=['acc',self.f1_m])
+        outer_nn_model.compile(optimizer='adam', loss= 'categorical_crossentropy', metrics=['acc',self.f1_m])
 
         # Early Stop Callback
         earlystop_callback = tf.keras.callbacks.EarlyStopping(monitor='loss', min_delta=1e-6, mode = 'min',patience=10)
 
-        outer_nn_model.fit(X_train, y_train, epochs = epochs, batch_size=256, validation_split=0.2, callbacks = [earlystop_callback])
+        if (val_split>0):
+            outer_nn_model.fit(X_train, y_train2, epochs = epochs, batch_size=128, validation_split=val_split, callbacks = [earlystop_callback])
+        else:
+            outer_nn_model.fit(X_train, y_train2, epochs = epochs, batch_size=128, callbacks = [earlystop_callback])
         return outer_nn_model
-
-
 
     def recall_m(self, y_true, y_pred):
         true_positives = K.sum(K.round(K.clip(y_true * y_pred, 0, 1)))
