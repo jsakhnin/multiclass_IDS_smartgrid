@@ -8,6 +8,7 @@ import tensorflow as tf
 from tensorflow.keras.utils import to_categorical
 import numpy as np
 from tensorflow.keras import backend as K
+from sklearn.feature_selection import chi2
 
 
 
@@ -19,7 +20,7 @@ class ERLC (BaseEstimator):
     '''
 
 
-    def __init__(self, verbose = True, sae_hidden_nodes = 400, innerNN_layers = 3, innerNN_nodes = 512, outerNN_layers = 2, outerNN_nodes = 256 ,pca_components = 14):
+    def __init__(self, verbose = True, sae_hidden_nodes = 400, innerNN_layers = 3, innerNN_nodes = 512, outerNN_layers = 2, outerNN_nodes = 256 ,pca_components = 14, X_train = [], y_train = []):
         self.verbose = verbose
         ## Tunable Parameters
         self.sae_hidden_nodes = sae_hidden_nodes
@@ -45,6 +46,8 @@ class ERLC (BaseEstimator):
         self.normal_min = []
         self.normal_max = []
         self.isTrained = False
+        self.X_train = X_train
+        self.y_train = y_train
 
 
 
@@ -77,6 +80,9 @@ class ERLC (BaseEstimator):
         innerNN_epochs: epochs of training for the inner neural network
         outerNN_epochs: epochs of training for the outer neural network
         '''
+
+        self.X_train = X_train
+        self.y_train = y_train
 
         if (self.verbose):
             print("Building ERLC model")
@@ -231,7 +237,8 @@ class ERLC (BaseEstimator):
 
     def localize (self, X_sample, y_sample):
         '''
-        This function localizes the attack by returning the difference of each feature from that of normal samples
+        This function localizes the attack by returning the score of each feature (measurement) based on its correlation
+        with the output of that attack. It uses the chi test function.
         '''
 
         if (X_sample.ndim > 1):
@@ -239,10 +246,10 @@ class ERLC (BaseEstimator):
         if (y_sample.ndim > 1):
             raise ValueError('Sample label must be 1 dimensional')
 
-        p_diff_final = self.getAveragePDforEachAttack(X_sample, y_sample)
-        p_diff_final = p_diff_final[::-1].sort()
+        score = self.chi_test(X_sample, y_sample)
+        # p_diff_final = p_diff_final[::-1].sort()
 
-        return p_diff_final
+        return score
 
 
 
@@ -336,135 +343,43 @@ class ERLC (BaseEstimator):
         return nn_model
 
 
-    def getAveragePDforEachAttack(self, X_test, y_test):
+
+    def chi_test (self, X_test, y_test):
         '''
-        This function gets the average percent difference for each attack type
-
-        inputs
-        --------
-        X_test: the testing data
-        y_test: the corresponding labels of testing data
-
-
-        outputs
-        --------
-        p_diff_avg_final: A matrix corresponding to the percent difference of each feature. The size of this matrix is the same as
-        that of X_test
-        '''
-
-        p_diff_avg_final = []
-
-        for i in np.unique(y_test):
-            print("Iteration i = {}".format(i))
-            p_diff_temp = self.getPD(X_test[y_test==i], self.normal_means, self.normal_std)
-            p_diff_temp = np.asarray(p_diff_temp)
-
-            print("p_diff_temp shape = {}".format(p_diff_temp.shape))
-
-            p_diff_avg = []
-            for j in range(p_diff_temp.shape[0]):
-                avg_temp = np.mean(p_diff_temp[j])
-                p_diff_avg.append(avg_temp)
-
-            p_diff_avg = np.asarray(p_diff_avg)
-            print("p_diff_avg shape = {}".format(p_diff_avg.shape))
-            p_diff_avg_final.append(abs(p_diff_avg))
-
-
-        p_diff_avg_final = np.asarray(p_diff_avg_final)
-
-        return p_diff_avg_final
-
-    def getLocalizationStats (self, X, y, normal_label = 41):
-        '''
-        This function gets the localization statistics, which are the mean and standard deviation of each measurement
-        under normal observations. It returns means and stds to be used in percent difference calculation for attack
-        localization.
-
-        inputs
-        --------
-        X: the training data
-        y: the training labels
-        normal_label: the value of the label that refers to normal samples
-        '''
-
-        means = []
-        stds = []
-        min = []
-        max = []
-
-        for i in range(X[y==normal_label].shape[1]):
-            mean_temp = np.mean(X[:,i])
-            std_temp = np.std(X[:,i])
-            max_temp = np.max(X[:,i])
-            min_temp = np.max(X[:,i])
-
-            # Replacing zeros with small numbers
-            if (mean_temp == 0):
-                mean_temp = 0.000001
-            if (std_temp == 0):
-                std_temp = 0.000001
-            if (min_temp == 0):
-                min_temp = 0.000001
-            if (max_temp == 0):
-                max_temp = 0.000001
-
-            # Adding them to a list
-            means.append(mean_temp)
-            stds.append(std_temp)
-            min.append(min_temp)
-            max.append(max_temp)
-
-        means = np.asarray(means)
-        stds = np.asarray(stds)
-        max = np.asarray(max)
-        min = np.asarray(min)
-
-        self.normal_means = means
-        self.normal_std = stds
-        self.normal_min = min
-        self.normal_max = max
-
-
-    def getPD(self, sample_np, normal_means, normal_stds):
-        '''
-        This function takes in a sample as a numpy array and calculates the percent difference from the mean
-        of every measurement from the normal data.
+        This function calculates the chi square of features compared to the same features in normal samples. The function takes test data
+        and labels, combines them with the training data and labels, then performs chi squared test on each feature.
 
         inputs
         -------
-        sample_np: Sample in numpy format
-        normal_means: means of the normal data (from getLocalizationStats)
-        normal_stds: standard deviation of the normal data (from getLocalizationStats)
+        X_test: test data
+        y_test: test labels
 
         outputs
-        -------
-        p_diff: percent difference of the sample
+        --------
+        final_chi: A matrix of size (labels, features) in which each row corresponds to the chi score of each feature for that attack. The
+        labels and features are in the same order as the input data and labels.
         '''
 
-        p_diff = []
+        # Combine saved train data with test data
+        X = np.vstack((self.X_train, X_test))
+        y = np.hstack((self.y_train, y_test))
 
-        for i in range(sample_np.shape[1]):
-            p_diff_temp = []
-            for j in range(sample_np.shape[0]):
-                comparison_value = normal_means[i]
-                var = self.normal_max[i] - self.normal_min[i]
-                if (var == 0):
-                    var = 0.0001
-                # comparison_value = abs(normal_means[j])
-                temp = sample_np[j][i]
-                percent_diff = ((temp - comparison_value)/normal_stds[i])
-                # percent_diff = abs(temp - comparison_value)
+        labels = np.unique(y)
+        numFeatures = X.shape[1]
+        final_chi = np.empty( (len(labels), numFeatures) )
+        i=0
+        normalX = X[y==41]
 
-                # percent_diff = abs((temp - comparison_value)/comparison_value)
-                # percent_diff = abs((percent_diff - normal_stds[i])/normal_stds[i])
-                p_diff_temp.append(percent_diff)
+        for label in labels:
+            currentX = np.vstack(( X[y==label], normalX) )
+            currentY = np.hstack( (y[y==label], y[y==41]) )
+            ans = chi2(currentX, currentY)
+            final_chi[i,:] = ans[1]
+            i=i+1
 
-            p_diff.append(p_diff_temp)
-        p_diff = np.asarray(p_diff)
+        final_chi = np.nan_to_num(final_chi)
 
-        return p_diff
-
+        return final_chi
 
     ## METRICS
     def recall_m(self, y_true, y_pred):
