@@ -33,7 +33,7 @@ class DataPipeline():
                     'control_panel_log1','control_panel_log2','control_panel_log3','control_panel_log4',
                     'relay1_log','relay2_log','relay3_log','relay4_log'], axis=1)
 
-        df = df.reset_index()
+        # df = df.reset_index()
 
         return df.columns
 
@@ -51,7 +51,7 @@ class DataPipeline():
                   'control_panel_log1','control_panel_log2','control_panel_log3','control_panel_log4',
                   'relay1_log','relay2_log','relay3_log','relay4_log'], axis=1)
 
-        df = df.reset_index()
+        # df = df.reset_index()
 
         df = df.replace(-np.inf, 0)
         df = df.replace(np.inf, 0)

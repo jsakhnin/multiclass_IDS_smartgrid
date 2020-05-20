@@ -42,6 +42,8 @@ class ERLC (BaseEstimator):
         # Private class variables
         self.normal_means = []
         self.normal_std = []
+        self.normal_min = []
+        self.normal_max = []
         self.isTrained = False
 
 
@@ -366,7 +368,7 @@ class ERLC (BaseEstimator):
 
             p_diff_avg = np.asarray(p_diff_avg)
             print("p_diff_avg shape = {}".format(p_diff_avg.shape))
-            p_diff_avg_final.append(p_diff_avg)
+            p_diff_avg_final.append(abs(p_diff_avg))
 
 
         p_diff_avg_final = np.asarray(p_diff_avg_final)
@@ -388,26 +390,40 @@ class ERLC (BaseEstimator):
 
         means = []
         stds = []
+        min = []
+        max = []
 
         for i in range(X[y==normal_label].shape[1]):
             mean_temp = np.mean(X[:,i])
             std_temp = np.std(X[:,i])
+            max_temp = np.max(X[:,i])
+            min_temp = np.max(X[:,i])
 
             # Replacing zeros with small numbers
             if (mean_temp == 0):
                 mean_temp = 0.000001
             if (std_temp == 0):
                 std_temp = 0.000001
+            if (min_temp == 0):
+                min_temp = 0.000001
+            if (max_temp == 0):
+                max_temp = 0.000001
 
             # Adding them to a list
             means.append(mean_temp)
             stds.append(std_temp)
+            min.append(min_temp)
+            max.append(max_temp)
 
         means = np.asarray(means)
         stds = np.asarray(stds)
+        max = np.asarray(max)
+        min = np.asarray(min)
 
         self.normal_means = means
         self.normal_std = stds
+        self.normal_min = min
+        self.normal_max = max
 
 
     def getPD(self, sample_np, normal_means, normal_stds):
@@ -431,11 +447,17 @@ class ERLC (BaseEstimator):
         for i in range(sample_np.shape[1]):
             p_diff_temp = []
             for j in range(sample_np.shape[0]):
-                comparison_value = abs(normal_means[i])
+                comparison_value = normal_means[i]
+                var = self.normal_max[i] - self.normal_min[i]
+                if (var == 0):
+                    var = 0.0001
                 # comparison_value = abs(normal_means[j])
                 temp = sample_np[j][i]
-                percent_diff = abs((temp - comparison_value))
-                percent_diff = abs((percent_diff - normal_stds[i])/normal_stds[i])
+                percent_diff = ((temp - comparison_value)/normal_stds[i])
+                # percent_diff = abs(temp - comparison_value)
+
+                # percent_diff = abs((temp - comparison_value)/comparison_value)
+                # percent_diff = abs((percent_diff - normal_stds[i])/normal_stds[i])
                 p_diff_temp.append(percent_diff)
 
             p_diff.append(p_diff_temp)
