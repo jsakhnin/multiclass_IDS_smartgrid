@@ -448,11 +448,11 @@ class ERLC (BaseEstimator):
         self.sae = self.rebuildSAE(self.X_train, num_nodes = self.sae_hidden_nodes)
         self.sae.load_weights(save_path + 'sae.h5')
 
-        self.inner_dnn = self.rebuildNN(self.X_train, num_layers = self.innerNN_layers, num_nodes = self.innerNN_nodes,num_classes = np.max(self.y_train)+1,activation = 'relu',do = 0)
+        self.inner_dnn = self.rebuildNN(self.X_train, architecture = self.innerNN_architecture, num_classes = np.max(self.y_train)+1, activation = 'relu', do = 0)
         self.inner_dnn.load_weights(save_path + 'inner_dnn.h5')
-        self.inner_dnn_new = self.rebuildNN(self.X_train_new, num_layers = self.innerNN_layers, num_nodes = self.innerNN_nodes,num_classes = np.max(self.y_train)+1,activation = 'relu',do = 0)
+        self.inner_dnn_new = self.rebuildNN(self.X_train_new, architecture = self.innerNN_architecture, num_classes = np.max(self.y_train)+1, activation = 'relu', do = 0)
         self.inner_dnn_new.load_weights(save_path + 'inner_dnn_new.h5')
-        self.outer_dnn = self.rebuildNN(self.fused_train, num_layers = self.outerNN_layers, num_nodes = self.outerNN_nodes,num_classes = np.max(self.y_train)+1,activation = 'relu',do = 0.2)
+        self.outer_dnn = self.rebuildNN(self.fused_train, architecture = self.outerNN_architecture, num_classes = np.max(self.y_train)+1, activation = 'relu', do = 0.3)
         self.outer_dnn.load_weights(save_path + 'outer_dnn.h5')
 
 
@@ -473,7 +473,7 @@ class ERLC (BaseEstimator):
 
         return model
 
-    def rebuildNN(self, X_train, num_classes = 42, num_layers = 2, num_nodes = 128, activation = 'relu', do = 0, regularizer = False):
+    def rebuildNN(self, X_train, num_classes = 42, architecture = [512,512,512], activation = 'relu', do = 0, regularizer = False):
         '''
         This function rebuilds the inner Deep Neural Network (DNN) and trains it to gain a new representation.
 
@@ -495,14 +495,14 @@ class ERLC (BaseEstimator):
         # Building the Neural Network
         nn_model = Sequential()
         nn_model.add(tf.keras.Input(shape=(X_train.shape[1],)),)
-        for i in range(num_layers):
-            if ( (i> 0) & (i < num_layers-1) & (do > 0.0)):
+        for i in range(len(architecture)):
+            if ( (i> 0) & (i < len(architecture)-1) & (do > 0.0)):
                 nn_model.add(Dropout(do))
 
             if (regularizer == True):
-                nn_model.add(Dense(num_nodes, activation=activation, kernel_regularizer= tf.keras.regularizers.l2(0.0001)))
+                nn_model.add(Dense(architecture[i], activation=activation, kernel_regularizer= tf.keras.regularizers.l2(0.0001)))
             else:
-                nn_model.add(Dense(num_nodes, activation=activation))
+                nn_model.add(Dense(architecture[i], activation=activation))
 
         nn_model.add(Dense(num_classes, activation='softmax'))
         nn_model.compile(optimizer='adam', loss= 'categorical_crossentropy', metrics=['acc',self.f1_m])
