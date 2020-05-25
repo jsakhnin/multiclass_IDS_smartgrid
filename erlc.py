@@ -356,7 +356,7 @@ class ERLC (BaseEstimator):
 
 
 
-    def chi_test (self, X, y, n_measurements = 10):
+    def chi_test (self, X, y, n_measurements = 10, normal_label = 41):
         '''
         This function calculates the chi square of features compared to the same features in normal samples. The function takes test data
         and labels, combines them with the training data and labels, then performs chi squared test on each feature.
@@ -380,25 +380,27 @@ class ERLC (BaseEstimator):
 
         labels = np.unique(y)
         numFeatures = X.shape[1]
-        final_chi = np.empty( (len(labels), numFeatures) )
+        final_chi = np.empty( (len(labels)-1, numFeatures) )
         i=0
-        normalX = X[y==41]
+        normalX = X[y==normal_label]
 
         for label in labels:
-            currentX = np.vstack(( X[y==label], normalX) )
-            currentY = np.hstack( (y[y==label], y[y==41]) )
-            ans = chi2(currentX, currentY)
-            final_chi[i,:] = ans[1]
-            i=i+1
+            if (label != normal_label):
+                currentX = np.vstack(( X[y==label], normalX) )
+                currentY = np.hstack( (y[y==label], y[y==normal_label]) )
+                ch, pval = chi2(currentX, currentY)
+                final_chi[i,:] = pval
+                i=i+1
 
         final_chi = np.nan_to_num(final_chi)
 
 
         topF = []
 
-        for rowNumber in range(np.unique(y).shape[0]):
+        for rowNumber in range(np.unique(y).shape[0]-1):
             row = final_chi[rowNumber,:].copy()
-            topIndices = row.argsort()[-n_measurements:][::-1]
+            idx = np.argpartition(row, n_measurements)
+            topIndices = idx[:n_measurements]
             topF.append(topIndices)
 
         topF = np.asarray(topF)
