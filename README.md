@@ -24,8 +24,8 @@ To run this model:
     
     on Linux/MacOS:
     
-    ```source myenv/bin/activate
-       pip install -r requirements.txt```
+    ```source myenv/bin/activate```
+    ```pip install -r requirements.txt```
     
 3. For basic implementation of the classifier, go through implementation.ipynb notebook. For the attack localization component, go through attack_localization.ipynb notebook.
 
