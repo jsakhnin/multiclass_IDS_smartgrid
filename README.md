@@ -14,30 +14,31 @@ To run this model:
 2. Navigate to the directory `cd multiclass_IDS_smartgrid` and then create an environment and install the requirements:
 
     * Using Conda:
-    ```
-    conda create --name myenv
-    conda activate myenv
-    pip install -r requirements.txt
-    ```
+    
+       ```
+       conda create --name myenv
+       conda activate myenv
+       pip install -r requirements.txt
+       ```
     
     * Using Pip:
     
-    ```
-    python3 -m venv myenv
-    ```
-    
-    on Windows:
-    
-    ```
-    myenv\Scripts\activate.bat
-    ```
-    
-    on Linux/MacOS:
-    
-    ```
-    source myenv/bin/activate
-    pip install -r requirements.txt
-    ```
+       ```
+       python3 -m venv myenv
+       ```
+
+       on Windows:
+
+       ```
+       myenv\Scripts\activate.bat
+       ```
+
+       on Linux/MacOS:
+
+       ```
+       source myenv/bin/activate
+       pip install -r requirements.txt
+       ```
     
 3. For basic implementation of the classifier, go through implementation.ipynb notebook. For the attack localization component, go through attack_localization.ipynb notebook.
 
