@@ -18,7 +18,6 @@ To run this model:
        ```
        conda create --name myenv
        conda activate myenv
-       pip install -r requirements.txt
        ```
     
     * Using Pip:
@@ -37,7 +36,6 @@ To run this model:
 
        ```
        source myenv/bin/activate
-       pip install -r requirements.txt
        ```
     
     
