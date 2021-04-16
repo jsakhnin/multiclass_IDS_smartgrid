@@ -251,7 +251,7 @@ class ERLC (BaseEstimator):
             raise ValueError('The model has not been trained yet. You must call the fit function first or load a saved model')
 
         y_pred = self.predict(X_sample)
-        chi_score, topF = chi_test(self.X_train, self.y_train, n_measurements = n_measurements)
+        chi_score, topF = ERLC.chi_test(self.X_train, self.y_train, n_measurements = n_measurements)
         row = chi_score[self.y_train==y_pred]
         # currentX = np.vstack( (self.X_train[ (self.y_train == normal_label) | (self.y_train == y_sample) ], X_sample) )
         # currentY = np.hstack( (self.y_train[ (self.y_train == normal_label) | (self.y_train == y_sample) ], y_sample) )
@@ -355,8 +355,8 @@ class ERLC (BaseEstimator):
         return nn_model
 
 
-
-    def chi_test (self, X, y, n_measurements = 10, normal_label = 41):
+    @staticmethod
+    def chi_test (X, y, n_measurements = 10, normal_label = 41):
         '''
         This function calculates the chi square of features compared to the same features in normal samples. The function takes test data
         and labels, combines them with the training data and labels, then performs chi squared test on each feature.
